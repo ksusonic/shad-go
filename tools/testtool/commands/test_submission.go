@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/perf/benchstat"
@@ -90,7 +90,7 @@ func problemDirExists(repo, problem string) bool {
 
 func testSubmission(studentRepo, privateRepo, problem string) error {
 	// Create temp directory to store all files required to test the solution.
-	tmpRepo, err := ioutil.TempDir("/tmp", problem+"-")
+	tmpRepo, err := os.MkdirTemp("/tmp", problem+"-")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -194,7 +194,12 @@ func (e *TestFailedError) Unwrap() error {
 	return e.E
 }
 
+var golangCILock sync.Mutex
+
 func runLinter(testDir, problem string) error {
+	golangCILock.Lock()
+	defer golangCILock.Unlock()
+
 	cmd := exec.Command("golangci-lint", "run", "--modules-download-mode", "readonly", "--build-tags", "private", fmt.Sprintf("./%s/...", problem))
 	cmd.Dir = testDir
 	cmd.Stdout = os.Stdout
@@ -209,7 +214,7 @@ func runLinter(testDir, problem string) error {
 
 // runTests runs all tests in directory with race detector.
 func runTests(testDir, privateRepo, problem string) error {
-	binCache, err := ioutil.TempDir("/tmp", "bincache")
+	binCache, err := os.MkdirTemp("/tmp", "bincache")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -218,7 +223,7 @@ func runTests(testDir, privateRepo, problem string) error {
 	}
 
 	var goCache string
-	goCache, err = ioutil.TempDir("/tmp", "gocache")
+	goCache, err = os.MkdirTemp("/tmp", "gocache")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -297,11 +302,16 @@ func runTests(testDir, privateRepo, problem string) error {
 		coverProfile := path.Join(os.TempDir(), randomName())
 
 		{
-			cmd := exec.Command(testBinary)
+			args := []string{
+				"-test.timeout=1m",
+			}
+
 			if coverageReq.Enabled {
-				cmd = exec.Command(testBinary, "-test.coverprofile", coverProfile)
+				args = append(args, "-test.coverprofile", coverProfile)
 				coverProfiles = append(coverProfiles, coverProfile)
 			}
+
+			cmd := exec.Command(testBinary, args...)
 			if currentUserIsRoot() {
 				if err := sandbox(cmd); err != nil {
 					log.Fatal(err)
@@ -318,13 +328,19 @@ func runTests(testDir, privateRepo, problem string) error {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 
+			log.Printf("> %s", strings.Join(cmd.Args, " "))
 			if err := cmd.Run(); err != nil {
 				return &TestFailedError{E: err}
 			}
 		}
 
 		{
-			cmd := exec.Command(raceBinaries[testPkg], "-test.bench=.")
+			args := []string{
+				"-test.bench=.",
+				"-test.timeout=1m",
+			}
+
+			cmd := exec.Command(raceBinaries[testPkg], args...)
 			if currentUserIsRoot() {
 				if err := sandbox(cmd); err != nil {
 					log.Fatal(err)
@@ -341,13 +357,20 @@ func runTests(testDir, privateRepo, problem string) error {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 
+			log.Printf("> %s", strings.Join(cmd.Args, " "))
 			if err := cmd.Run(); err != nil {
 				return &TestFailedError{E: err}
 			}
 		}
 
 		{
-			benchCmd := exec.Command(testBinary, "-test.bench=.", "-test.run=^$")
+			args := []string{
+				"-test.timeout=1m",
+				"-test.bench=.",
+				"-test.run=^$",
+			}
+
+			benchCmd := exec.Command(testBinary, args...)
 			if currentUserIsRoot() {
 				if err := sandbox(benchCmd); err != nil {
 					log.Fatal(err)
@@ -366,6 +389,7 @@ func runTests(testDir, privateRepo, problem string) error {
 			benchCmd.Stdout = &buf
 			benchCmd.Stderr = os.Stderr
 
+			log.Printf("> %s", strings.Join(benchCmd.Args, " "))
 			if err := benchCmd.Run(); err != nil {
 				return &TestFailedError{E: err}
 			}

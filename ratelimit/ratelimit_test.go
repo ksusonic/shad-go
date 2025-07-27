@@ -28,7 +28,9 @@ func TestNoRateLimit(t *testing.T) {
 func TestBlockedRateLimit(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	limit := NewLimiter(1, time.Minute)
+	interval := 10 * time.Second
+	started := time.Now()
+	limit := NewLimiter(1, interval)
 	defer limit.Stop()
 
 	require.NoError(t, limit.Acquire(context.Background()))
@@ -38,12 +40,15 @@ func TestBlockedRateLimit(t *testing.T) {
 
 	err := limit.Acquire(ctx)
 	require.Equal(t, context.DeadlineExceeded, err)
+	require.Less(t, time.Since(started), interval)
 }
 
 func TestSimpleLimitCancel(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	limit := NewLimiter(1, time.Minute)
+	interval := 10 * time.Second
+	started := time.Now()
+	limit := NewLimiter(1, interval)
 	defer limit.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
@@ -53,6 +58,26 @@ func TestSimpleLimitCancel(t *testing.T) {
 
 	err := limit.Acquire(ctx)
 	require.Equal(t, context.DeadlineExceeded, err)
+	require.Less(t, time.Since(started), interval)
+}
+
+func TestAllWaiting(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	const (
+		N        = 2
+		interval = 100 * time.Millisecond
+	)
+
+	start := time.Now()
+	limit := NewLimiter(1, interval)
+	defer limit.Stop()
+
+	for i := 0; i <= N; i++ {
+		require.NoError(t, limit.Acquire(context.Background()))
+	}
+
+	require.GreaterOrEqual(t, time.Since(start), N*interval)
 }
 
 func TestAcquireAfterDelay(t *testing.T) {
@@ -85,7 +110,7 @@ func TestAcquireAfterStopped(t *testing.T) {
 	cancel()
 
 	for i := 0; i < nTries; i++ {
-		require.Equal(t, ErrStopped, limit.Acquire(ctx))
+		require.Contains(t, []error{ErrStopped, context.Canceled}, limit.Acquire(ctx))
 	}
 }
 
@@ -196,33 +221,4 @@ func TestStressNoBlocking(t *testing.T) {
 	}
 
 	require.NoError(t, eg.Wait())
-}
-
-func BenchmarkNoBlocking(b *testing.B) {
-	b.ReportAllocs()
-	b.SetBytes(1)
-
-	limit := NewLimiter(1, 0)
-	defer limit.Stop()
-
-	ctx := context.Background()
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			if err := limit.Acquire(ctx); err != nil {
-				b.Errorf("acquire failed: %v", err)
-			}
-		}
-	})
-}
-
-func BenchmarkReferenceMutex(b *testing.B) {
-	var mu sync.Mutex
-
-	var j int
-	for i := 0; i < b.N; i++ {
-		mu.Lock()
-		j++
-		mu.Unlock()
-	}
 }

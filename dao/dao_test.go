@@ -36,7 +36,7 @@ func TestDao(t *testing.T) {
 
 	alice, err := dao.Lookup(ctx, aliceID)
 	require.NoError(t, err)
-	require.Equal(t, alice, User{ID: aliceID, Name: "Alice"})
+	require.Equal(t, User{ID: aliceID, Name: "Alice"}, alice)
 
 	require.NoError(t, dao.Delete(ctx, bobID))
 
@@ -44,6 +44,7 @@ func TestDao(t *testing.T) {
 	require.ErrorIs(t, err, sql.ErrNoRows)
 
 	require.NoError(t, dao.Update(ctx, &User{ID: charlieID, Name: "Chaplin"}))
+	require.Error(t, dao.Update(ctx, &User{ID: 999, Name: "FooBar"}))
 
 	users, err := dao.List(ctx)
 	require.NoError(t, err)

@@ -2,6 +2,8 @@ package once
 
 import (
 	"testing"
+
+	"gitlab.com/slon/shad-go/tools/testtool"
 )
 
 type one int
@@ -58,4 +60,23 @@ func TestOnceManyTimes(t *testing.T) {
 	for i := 0; i < N; i++ {
 		TestOnce(t)
 	}
+}
+
+func TestOnceNoBusyWait(t *testing.T) {
+	once := New()
+
+	done := make(chan struct{})
+	defer close(done)
+
+	for i := 0; i < 100; i++ {
+		go once.Do(func() {
+			<-done
+		})
+	}
+
+	testtool.VerifyNoBusyGoroutines(t)
+}
+
+func TestNoSyncPackageImported(t *testing.T) {
+	testtool.CheckForbiddenImport(t, "sync")
 }

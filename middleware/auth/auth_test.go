@@ -63,16 +63,32 @@ func TestAuth(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		m.ServeHTTP(w, httptest.NewRequest("GET", "/path/ok", nil))
-		require.Equal(t, w.Code, http.StatusUnauthorized)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.False(t, called)
 	})
 
 	t.Run("InvalidToken", func(t *testing.T) {
+		called = false
 
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/path/ok", nil)
+		r.Header.Add("authorization", "Bearer token2")
+
+		m.ServeHTTP(w, r)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
+		require.False(t, called)
 	})
 
 	t.Run("DatabaseError", func(t *testing.T) {
+		called = false
 
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/path/ok", nil)
+		r.Header.Add("authorization", "Bearer token1")
+
+		m.ServeHTTP(w, r)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		require.False(t, called)
 	})
 
 	t.Run("GoodToken", func(t *testing.T) {
@@ -82,10 +98,10 @@ func TestAuth(t *testing.T) {
 		r.Header.Add("authorization", "Bearer token0")
 
 		m.ServeHTTP(w, r)
-		require.Equal(t, w.Code, http.StatusOK)
+		require.Equal(t, http.StatusOK, w.Code)
 		require.True(t, called)
 		require.True(t, lastUserOK)
-		require.Equal(t, lastUser, &auth.User{Name: "Fedor", Email: "dartslon@gmail.com"})
+		require.Equal(t, &auth.User{Name: "Fedor", Email: "dartslon@gmail.com"}, lastUser)
 
 		called = false
 		w = httptest.NewRecorder()
@@ -93,7 +109,7 @@ func TestAuth(t *testing.T) {
 		r.Header.Add("authorization", "Bearer token0")
 
 		m.ServeHTTP(w, r)
-		require.Equal(t, w.Code, http.StatusConflict)
+		require.Equal(t, http.StatusConflict, w.Code)
 		require.True(t, called)
 	})
 }

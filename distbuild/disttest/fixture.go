@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -50,7 +49,11 @@ type Config struct {
 	WorkerCount int
 }
 
-func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
+func newEnv(t *testing.T, config *Config) (e *env) {
+	t.Cleanup(func() {
+		goleak.VerifyNone(t)
+	})
+
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 
@@ -62,7 +65,7 @@ func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
 
 	if err = os.MkdirAll(rootDir, 0777); err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			rootDir, err = ioutil.TempDir("", "")
+			rootDir, err = os.MkdirTemp("", "")
 			require.NoError(t, err)
 		} else {
 			require.NoError(t, err)
@@ -90,6 +93,10 @@ func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
 	env.Logger, err = cfg.Build()
 	require.NoError(t, err)
 
+	t.Cleanup(func() {
+		_ = env.Logger.Sync()
+	})
+
 	t.Helper()
 	t.Logf("test is running inside %s; see test.log file for more info", filepath.Join("workdir", t.Name()))
 
@@ -100,6 +107,7 @@ func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
 
 	var cancelRootContext func()
 	env.Ctx, cancelRootContext = context.WithCancel(context.Background())
+	t.Cleanup(cancelRootContext)
 
 	env.Client = client.NewClient(
 		env.Logger.Named("client"),
@@ -113,6 +121,7 @@ func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
 		env.Logger.Named("coordinator"),
 		coordinatorCache,
 	)
+	t.Cleanup(env.Coordinator.Stop)
 
 	router := http.NewServeMux()
 	router.Handle("/coordinator/", http.StripPrefix("/coordinator", env.Coordinator))
@@ -161,6 +170,11 @@ func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
 		}
 	}()
 
+	t.Cleanup(func() {
+		cancelRootContext()
+		_ = env.HTTP.Shutdown(context.Background())
+	})
+
 	for _, w := range env.Workers {
 		go func(w *worker.Worker) {
 			err := w.Run(env.Ctx)
@@ -181,13 +195,7 @@ func newEnv(t *testing.T, config *Config) (e *env, cancel func()) {
 		}
 	}()
 
-	return env, func() {
-		cancelRootContext()
-		_ = env.HTTP.Shutdown(context.Background())
-		_ = env.Logger.Sync()
-
-		goleak.VerifyNone(t)
-	}
+	return env
 }
 
 func newWinFileSink(u *url.URL) (zap.Sink, error) {

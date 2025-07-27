@@ -9,17 +9,18 @@ import (
 
 var testingToken = ""
 
-const reportEndpoint = "https://itmo-go.manytask.org/api/report"
+const reportEndpoint = "https://go.manytask.org/api/report"
 
 func reportTestResults(token string, task string, userID string, failed bool) error {
+	if failed {
+		// TODO: see how to report failed submit to new manytask
+		return nil
+	}
+
 	form := url.Values{}
-	form.Set("token", token)
+	form.Set("token", "x "+token)
 	form.Set("task", task)
 	form.Set("user_id", userID)
-
-	if failed {
-		form.Set("failed", "1")
-	}
 
 	var rsp *http.Response
 	var err error

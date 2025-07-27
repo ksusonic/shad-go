@@ -36,9 +36,11 @@ type testScheduler struct {
 func newTestScheduler(t *testing.T) *testScheduler {
 	log := zaptest.NewLogger(t)
 
+	fakeClock := clockwork.NewFakeClock()
+
 	s := &testScheduler{
-		FakeClock: clockwork.NewFakeClock(),
-		Scheduler: scheduler.NewScheduler(log, config),
+		FakeClock: fakeClock,
+		Scheduler: scheduler.NewScheduler(log, config, fakeClock.After),
 		reset:     make(chan struct{}),
 	}
 
@@ -51,13 +53,12 @@ func newTestScheduler(t *testing.T) *testScheduler {
 		}
 	}()
 
-	scheduler.TimeAfter = s.FakeClock.After
 	return s
 }
 
 func (s *testScheduler) stop(t *testing.T) {
 	close(s.reset)
-	scheduler.TimeAfter = time.After
+	s.Scheduler.Stop()
 	goleak.VerifyNone(t)
 }
 

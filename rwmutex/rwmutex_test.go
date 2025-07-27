@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"gitlab.com/slon/shad-go/tools/testtool"
 )
 
 func parallelReader(m *RWMutex, clocked, cunlock, cdone chan bool) {
@@ -130,4 +132,57 @@ func TestRWMutex(t *testing.T) {
 	HammerRWMutex(10, 3, n)
 	HammerRWMutex(10, 10, n)
 	HammerRWMutex(10, 5, n)
+}
+
+func TestWriteWriteReadDeadlock(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
+	runtime.GOMAXPROCS(2)
+	// Number of active readers + 10000 * number of active writers.
+	var activity int32
+	rwm := New()
+	cdone := make(chan bool, 3)
+
+	for i := 0; i < 2e6; i++ {
+		go writer(rwm, 1, &activity, cdone)
+		go writer(rwm, 1, &activity, cdone)
+		go reader(rwm, 1, &activity, cdone)
+		<-cdone
+		<-cdone
+		<-cdone
+	}
+
+}
+
+func TestNoBusyWaitInRlock(t *testing.T) {
+	rwm := New()
+	rwm.Lock()
+	defer rwm.Unlock()
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			rwm.RLock()
+			defer rwm.RUnlock()
+		}()
+	}
+
+	testtool.VerifyNoBusyGoroutines(t)
+}
+
+func TestNoBusyWaitInlock(t *testing.T) {
+	rwm := New()
+	rwm.RLock()
+	defer rwm.RUnlock()
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			rwm.Lock()
+			defer rwm.Unlock()
+		}()
+	}
+
+	testtool.VerifyNoBusyGoroutines(t)
+}
+
+func TestNoSyncPackageImported(t *testing.T) {
+	testtool.CheckForbiddenImport(t, "sync")
 }

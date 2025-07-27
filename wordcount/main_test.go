@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -74,10 +73,33 @@ b`,
 			},
 			expected: counts{"a": 3, "b": 2},
 		},
+		{
+			name: "double words in one file",
+			files: files{`a
+a
+b
+с`,
+				`
+a
+b`,
+			},
+			expected: counts{"a": 3, "b": 2},
+		},
+		{
+			name: "double words in one line",
+			files: files{`a a
+b
+с`,
+				`
+a a
+b`,
+			},
+			expected: counts{"a a": 2, "b": 2},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create temp directory.
-			testDir, err := ioutil.TempDir("", "wordcount-testdata-")
+			testDir, err := os.MkdirTemp("", "wordcount-testdata-")
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(testDir) }()
 
@@ -85,7 +107,7 @@ b`,
 			var files []string
 			for _, f := range tc.files {
 				file := path.Join(testDir, testtool.RandomName())
-				err = ioutil.WriteFile(file, []byte(f), 0644)
+				err = os.WriteFile(file, []byte(f), 0644)
 				require.NoError(t, err)
 				files = append(files, file)
 			}
