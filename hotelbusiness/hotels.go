@@ -24,6 +24,7 @@ func ComputeLoad(guests []Guest) []Load {
 			guestsByDay[day]++
 		}
 
+		// Ensure the day after checkout is present to record zero guests if needed
 		guestsByDay[guest.CheckOutDate] = guestsByDay[guest.CheckOutDate]
 	}
 
